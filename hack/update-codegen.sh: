@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+
+CODEGEN_PKG=$(go list -m -f "{{.Dir}}" k8s.io/code-generator)
+
+bash ${CODEGEN_PKG}/generate-groups.sh all \
+  github.com/your-org/checkpoint-restore-controller/pkg/generated \
+  github.com/your-org/checkpoint-restore-controller/pkg/apis \
+  checkpoint:v1 \
+  --go-header-file ${CODEGEN_PKG}/hack/boilerplate.go.txt

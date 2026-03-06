@@ -1,0 +1,13 @@
+# Restore a pod from the "counter-checkpoint" checkpoint.
+#
+# The controller creates a new Pod in the API server, then calls the
+# kubelet restore API. CRIU restores the exact process state — memory,
+# registers, file descriptors — so the counter continues from the
+# checkpointed value instead of restarting from 0.
+apiVersion: checkpoint.k8s.io/v1alpha1
+kind: PodRestore
+metadata:
+  name: counter-restore
+  namespace: default
+spec:
+  checkpointName: counter-checkpoint

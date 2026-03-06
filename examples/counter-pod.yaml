@@ -1,0 +1,22 @@
+# A simple pod that prints an incrementing counter every second.
+# This is used to demonstrate that CRIU preserves process state:
+# after restore, the counter continues from where it was checkpointed
+# instead of restarting from 0.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: counter-app
+  namespace: default
+spec:
+  containers:
+  - name: counter
+    image: docker.io/library/busybox:latest
+    command: ["/bin/sh", "-c"]
+    args:
+    - |
+      i=0
+      while true; do
+        echo "count: $i"
+        i=$((i+1))
+        sleep 1
+      done

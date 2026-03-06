@@ -1,0 +1,9 @@
+apiVersion: checkpoint.k8s.io/v1alpha1
+kind: PodCheckpoint
+metadata:
+  labels:
+    app.kubernetes.io/name: pod-snapshot-controller
+    app.kubernetes.io/managed-by: kustomize
+  name: podcheckpoint-sample
+spec:
+  sourcePodName: my-app

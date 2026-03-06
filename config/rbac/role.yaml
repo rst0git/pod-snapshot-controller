@@ -1,0 +1,51 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pod-snapshot-controller-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - nodes/proxy
+  verbs:
+  - create
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
+  - checkpoint.k8s.io
+  resources:
+  - podcheckpoints
+  - podrestores
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - checkpoint.k8s.io
+  resources:
+  - podcheckpoints/finalizers
+  - podrestores/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - checkpoint.k8s.io
+  resources:
+  - podcheckpoints/status
+  - podrestores/status
+  verbs:
+  - get
+  - patch
+  - update

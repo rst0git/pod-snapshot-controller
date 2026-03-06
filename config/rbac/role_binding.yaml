@@ -1,0 +1,15 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/name: pod-snapshot-controller
+    app.kubernetes.io/managed-by: kustomize
+  name: pod-snapshot-controller-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: pod-snapshot-controller-role
+subjects:
+- kind: ServiceAccount
+  name: pod-snapshot-controller
+  namespace: pod-snapshot-controller-system

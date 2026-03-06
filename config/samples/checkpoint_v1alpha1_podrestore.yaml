@@ -1,0 +1,17 @@
+apiVersion: checkpoint.k8s.io/v1alpha1
+kind: PodRestore
+metadata:
+  labels:
+    app.kubernetes.io/name: pod-snapshot-controller
+    app.kubernetes.io/managed-by: kustomize
+  name: podrestore-sample
+spec:
+  checkpointName: podcheckpoint-sample
+  podTemplate:
+    metadata:
+      labels:
+        app: my-app
+    spec:
+      containers:
+      - name: app
+        image: my-app:latest
