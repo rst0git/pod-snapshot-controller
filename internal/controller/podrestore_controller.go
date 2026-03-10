@@ -234,7 +234,7 @@ func (r *PodRestoreReconciler) ensurePodForRestore(
 	}
 
 	// Extract container names from the checkpoint filename.
-	// The filename format is: checkpoint-{podName}_{namespace}-{timestamp}.tar
+	// The filename format is: snapshot-{podName}_{namespace}-{timestamp}
 	// We don't have direct access to the node's filesystem, so we use a
 	// single placeholder container. The kubelet will determine the actual
 	// containers from the checkpoint manifest.
@@ -296,35 +296,6 @@ func (r *PodRestoreReconciler) ensurePodForRestore(
 	// sandbox. containerd's RestorePod will then reuse that sandbox.
 	time.Sleep(5 * time.Second)
 	return nil
-}
-
-// bindPodToNode removes the scheduling gate from the Pod and binds it to a
-// node. This is similar to what the scheduler does when assigning pods.
-func (r *PodRestoreReconciler) bindPodToNode(
-	ctx context.Context, podName, namespace, nodeName string,
-) error {
-	log := logf.FromContext(ctx)
-
-	// Remove the scheduling gate so the scheduler considers the Pod bound.
-	patch := []byte(`{"spec":{"schedulingGates":null}}`)
-	_, err := r.KubeClient.CoreV1().Pods(namespace).Patch(
-		ctx, podName, "application/strategic-merge-patch+json", patch, metav1.PatchOptions{})
-	if err != nil {
-		log.Error(err, "Failed to remove scheduling gate from Pod")
-	}
-
-	// Bind the Pod to the node.
-	binding := &corev1.Binding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      podName,
-			Namespace: namespace,
-		},
-		Target: corev1.ObjectReference{
-			Kind: "Node",
-			Name: nodeName,
-		},
-	}
-	return r.KubeClient.CoreV1().Pods(namespace).Bind(ctx, binding, metav1.CreateOptions{})
 }
 
 // setFailed updates the PodRestore status to Failed with a condition message.

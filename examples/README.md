@@ -16,7 +16,7 @@ The restored process continues from exactly where it was checkpointed.
 ### Run
 
 ```bash
-./examples/checkpoint-restore.sh
+./examples/run.sh
 ```
 
 ### Manual steps
@@ -43,4 +43,4 @@ kubectl logs counter-app -f                      # Counter continues
 | `counter-pod.yaml` | Pod with an incrementing counter |
 | `checkpoint.yaml` | PodCheckpoint targeting the counter pod |
 | `restore.yaml` | PodRestore referencing the checkpoint |
-| `checkpoint-restore.sh` | Interactive walkthrough |
+| `run.sh` | Interactive walkthrough |

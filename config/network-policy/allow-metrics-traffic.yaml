@@ -7,7 +7,7 @@ metadata:
   labels:
     app.kubernetes.io/name: pod-snapshot-controller
     app.kubernetes.io/managed-by: kustomize
-  name: allow-metrics-traffic
+  name: pod-snapshot-controller-allow-metrics-traffic
   namespace: system
 spec:
   podSelector:

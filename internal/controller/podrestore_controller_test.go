@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	checkpointv1alpha1 "github.com/rst0git/pod-snapshot-controller/api/v1alpha1"
@@ -53,7 +54,7 @@ var _ = Describe("PodRestore Controller", func() {
 			checkpointName = "test-checkpoint"
 			namespace      = "default"
 			nodeName       = "test-node"
-			checkpointPath = "/var/lib/kubelet/pod-checkpoints/checkpoint-myPod_default-2026-03-09T12:00:00Z.tar"
+			checkpointPath = "/var/lib/kubelet/pod-snapshots/snapshot-myPod_default-2026-03-09T12:00:00Z"
 		)
 
 		ctx := context.Background()
@@ -160,20 +161,21 @@ var _ = Describe("PodRestore Controller", func() {
 			createCheckpoint(checkpointv1alpha1.PodCheckpointPhaseReady)
 			createRestore()
 
-			fake := &fakeRestorer{podSandboxID: "restored-sandbox-123"}
+			fakeRestorer := &fakeRestorer{podSandboxID: "restored-sandbox-123"}
 			r := &PodRestoreReconciler{
-				Client:   k8sClient,
-				Scheme:   k8sClient.Scheme(),
-				Restorer: fake,
+				Client:     k8sClient,
+				Scheme:     k8sClient.Scheme(),
+				Restorer:   fakeRestorer,
+				KubeClient: fake.NewClientset(),
 			}
 
 			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: restoreNN})
 			Expect(err).NotTo(HaveOccurred())
 
 			// Verify the restorer was called with correct parameters.
-			Expect(fake.lastNode).To(Equal(nodeName))
-			Expect(fake.lastNS).To(Equal(namespace))
-			Expect(fake.lastCkptName).To(Equal("checkpoint-myPod_default-2026-03-09T12:00:00Z.tar"))
+			Expect(fakeRestorer.lastNode).To(Equal(nodeName))
+			Expect(fakeRestorer.lastNS).To(Equal(namespace))
+			Expect(fakeRestorer.lastCkptName).To(Equal("snapshot-myPod_default-2026-03-09T12:00:00Z"))
 
 			var updated checkpointv1alpha1.PodRestore
 			Expect(k8sClient.Get(ctx, restoreNN, &updated)).To(Succeed())
@@ -185,11 +187,11 @@ var _ = Describe("PodRestore Controller", func() {
 			createCheckpoint(checkpointv1alpha1.PodCheckpointPhaseReady)
 			createRestore()
 
-			fake := &fakeRestorer{err: fmt.Errorf("restore failed: container runtime error")}
 			r := &PodRestoreReconciler{
-				Client:   k8sClient,
-				Scheme:   k8sClient.Scheme(),
-				Restorer: fake,
+				Client:     k8sClient,
+				Scheme:     k8sClient.Scheme(),
+				Restorer:   &fakeRestorer{err: fmt.Errorf("restore failed: container runtime error")},
+				KubeClient: fake.NewClientset(),
 			}
 
 			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: restoreNN})

@@ -95,8 +95,7 @@ kubectl apply               pod-snapshot-controller             kubelet         
 
 ## Prerequisites
 
-- Kubernetes 1.36+ with the `KubeletLocalPodCheckpointRestore` feature gate
-  enabled
+- Kubernetes with the `KubeletLocalPodCheckpointRestore` feature gate enabled
 - A container runtime that supports the `CheckpointPod`/`RestorePod` CRI RPCs
   (e.g., containerd with CRIU, or gVisor)
 - For CRIU-based runtimes (runc, crun, youki): CRIU installed on all nodes
@@ -158,7 +157,7 @@ A full walkthrough is available in [examples/](examples/). The automated script
 runs the entire checkpoint/restore cycle:
 
 ```bash
-./examples/checkpoint-restore.sh
+./examples/run.sh
 ```
 
 Or step by step:
@@ -182,21 +181,6 @@ kubectl get podrestore counter-restore -w
 # 5. Verify the counter continued from where it was checkpointed
 kubectl logs counter-app --tail=10
 ```
-
-## Current Limitations
-
-This controller is an alpha prototype. The following are explicitly out of
-scope for the initial implementation (deferred to future KEPs):
-
-- Cross-node restore (currently same-node only)
-- In-place restore (same Pod UID / same Pod object)
-- TCP connection preservation (connections are closed on checkpoint)
-- IP address preservation across checkpoint/restore
-- GPU / DRA device integration
-- Distributed / multi-Pod coordinated checkpointing
-- Checkpoint encryption and compression
-- Checkpoint garbage collection
-- Scheduling integration (workload-aware preemption with checkpointing)
 
 ## Development
 

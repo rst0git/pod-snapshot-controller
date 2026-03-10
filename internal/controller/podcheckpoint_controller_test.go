@@ -43,11 +43,11 @@ func (f *fakeCheckpointer) CheckpointPod(_ context.Context, _, _, _ string, time
 }
 
 // helper to create a PodCheckpoint resource.
-func createPodCheckpoint(ctx context.Context, name, namespace, sourcePod string) {
+func createPodCheckpoint(ctx context.Context, name, sourcePod string) {
 	resource := &checkpointv1alpha1.PodCheckpoint{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: namespace,
+			Namespace: "default",
 		},
 		Spec: checkpointv1alpha1.PodCheckpointSpec{
 			SourcePodName: sourcePod,
@@ -57,11 +57,11 @@ func createPodCheckpoint(ctx context.Context, name, namespace, sourcePod string)
 }
 
 // helper to create a Pod.
-func createPod(ctx context.Context, name, namespace, nodeName string) *corev1.Pod {
+func createPod(ctx context.Context, name, nodeName string) *corev1.Pod {
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: namespace,
+			Namespace: "default",
 		},
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{{Name: "app", Image: "busybox"}},
@@ -80,7 +80,7 @@ var _ = Describe("PodCheckpoint Controller", func() {
 	It("should set Failed phase when target Pod does not exist", func() {
 		name := "ckpt-no-pod"
 		nn := types.NamespacedName{Name: name, Namespace: "default"}
-		createPodCheckpoint(ctx, name, "default", "nonexistent-pod")
+		createPodCheckpoint(ctx, name, "nonexistent-pod")
 
 		reconciler := &PodCheckpointReconciler{
 			Client:       k8sClient,
@@ -101,8 +101,8 @@ var _ = Describe("PodCheckpoint Controller", func() {
 		name := "ckpt-pending"
 		nn := types.NamespacedName{Name: name, Namespace: "default"}
 
-		createPod(ctx, podName, "default", "")
-		createPodCheckpoint(ctx, name, "default", podName)
+		createPod(ctx, podName, "")
+		createPodCheckpoint(ctx, name, podName)
 
 		reconciler := &PodCheckpointReconciler{
 			Client:       k8sClient,
@@ -123,11 +123,11 @@ var _ = Describe("PodCheckpoint Controller", func() {
 		name := "ckpt-success"
 		nn := types.NamespacedName{Name: name, Namespace: "default"}
 
-		pod := createPod(ctx, podName, "default", "test-node")
+		pod := createPod(ctx, podName, "test-node")
 		pod.Status.Phase = corev1.PodRunning
 		Expect(k8sClient.Status().Update(ctx, pod)).To(Succeed())
 
-		createPodCheckpoint(ctx, name, "default", podName)
+		createPodCheckpoint(ctx, name, podName)
 
 		expectedLocation := "/var/lib/kubelet/pod-checkpoints/checkpoint-pod-running-ok_default-2026-01-01T00:00:00Z.tar"
 		reconciler := &PodCheckpointReconciler{
@@ -153,7 +153,7 @@ var _ = Describe("PodCheckpoint Controller", func() {
 		name := "ckpt-timeout"
 		nn := types.NamespacedName{Name: name, Namespace: "default"}
 
-		pod := createPod(ctx, podName, "default", "test-node")
+		pod := createPod(ctx, podName, "test-node")
 		pod.Status.Phase = corev1.PodRunning
 		Expect(k8sClient.Status().Update(ctx, pod)).To(Succeed())
 
@@ -186,11 +186,11 @@ var _ = Describe("PodCheckpoint Controller", func() {
 		name := "ckpt-api-err"
 		nn := types.NamespacedName{Name: name, Namespace: "default"}
 
-		pod := createPod(ctx, podName, "default", "test-node")
+		pod := createPod(ctx, podName, "test-node")
 		pod.Status.Phase = corev1.PodRunning
 		Expect(k8sClient.Status().Update(ctx, pod)).To(Succeed())
 
-		createPodCheckpoint(ctx, name, "default", podName)
+		createPodCheckpoint(ctx, name, podName)
 
 		reconciler := &PodCheckpointReconciler{
 			Client: k8sClient,
@@ -212,7 +212,7 @@ var _ = Describe("PodCheckpoint Controller", func() {
 		name := "ckpt-terminal"
 		nn := types.NamespacedName{Name: name, Namespace: "default"}
 
-		createPodCheckpoint(ctx, name, "default", "some-pod")
+		createPodCheckpoint(ctx, name, "some-pod")
 
 		// Set to terminal state.
 		var checkpoint checkpointv1alpha1.PodCheckpoint

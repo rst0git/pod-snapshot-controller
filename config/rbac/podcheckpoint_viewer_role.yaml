@@ -11,7 +11,7 @@ metadata:
   labels:
     app.kubernetes.io/name: pod-snapshot-controller
     app.kubernetes.io/managed-by: kustomize
-  name: podcheckpoint-viewer-role
+  name: pod-snapshot-controller-podcheckpoint-viewer-role
 rules:
 - apiGroups:
   - checkpoint.checkpoint-restore.k8s.io
