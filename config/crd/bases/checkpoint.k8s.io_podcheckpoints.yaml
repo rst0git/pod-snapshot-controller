@@ -55,10 +55,26 @@ spec:
           spec:
             description: spec defines the desired state of PodCheckpoint.
             properties:
+              deletionPolicy:
+                allOf:
+                - enum:
+                  - Delete
+                  - Retain
+                - enum:
+                  - Delete
+                  - Retain
+                default: Delete
+                description: |-
+                  deletionPolicy determines whether checkpoint data on the node should
+                  be deleted when this PodCheckpoint is removed. Defaults to Delete.
+                type: string
               sourcePodName:
                 description: sourcePodName is the name of the running Pod to checkpoint.
                 minLength: 1
                 type: string
+                x-kubernetes-validations:
+                - message: sourcePodName is immutable
+                  rule: self == oldSelf
               timeoutSeconds:
                 description: |-
                   timeoutSeconds is the timeout for the checkpoint operation in seconds.

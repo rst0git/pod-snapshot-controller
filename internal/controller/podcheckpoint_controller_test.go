@@ -25,6 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	checkpointv1alpha1 "github.com/rst0git/pod-snapshot-controller/api/v1alpha1"
@@ -77,6 +78,29 @@ func createPod(ctx context.Context, name, nodeName string) *corev1.Pod {
 var _ = Describe("PodCheckpoint Controller", func() {
 	ctx := context.Background()
 
+	It("should set initial Pending phase with Unknown condition on first reconcile", func() {
+		name := "ckpt-initial"
+		nn := types.NamespacedName{Name: name, Namespace: "default"}
+
+		// Create checkpoint referencing a non-existent pod so the first
+		// reconcile sets Pending, and the second sets Failed.
+		createPodCheckpoint(ctx, name, "nonexistent-pod-initial")
+
+		reconciler := &PodCheckpointReconciler{
+			Client:       k8sClient,
+			Scheme:       k8sClient.Scheme(),
+			Checkpointer: &fakeCheckpointer{},
+		}
+
+		// First reconcile: should add finalizer.
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		Expect(err).NotTo(HaveOccurred())
+
+		var updated checkpointv1alpha1.PodCheckpoint
+		Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
+		Expect(controllerutil.ContainsFinalizer(&updated, checkpointv1alpha1.PodCheckpointProtectionFinalizer)).To(BeTrue())
+	})
+
 	It("should set Failed phase when target Pod does not exist", func() {
 		name := "ckpt-no-pod"
 		nn := types.NamespacedName{Name: name, Namespace: "default"}
@@ -88,8 +112,11 @@ var _ = Describe("PodCheckpoint Controller", func() {
 			Checkpointer: &fakeCheckpointer{},
 		}
 
-		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
-		Expect(err).NotTo(HaveOccurred())
+		// First reconcile adds finalizer, second sets Pending, third finds Pod missing.
+		for range 3 {
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+		}
 
 		var updated checkpointv1alpha1.PodCheckpoint
 		Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
@@ -110,8 +137,11 @@ var _ = Describe("PodCheckpoint Controller", func() {
 			Checkpointer: &fakeCheckpointer{},
 		}
 
-		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
-		Expect(err).NotTo(HaveOccurred())
+		// Reconcile until terminal state.
+		for range 3 {
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+		}
 
 		var updated checkpointv1alpha1.PodCheckpoint
 		Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
@@ -138,8 +168,11 @@ var _ = Describe("PodCheckpoint Controller", func() {
 			},
 		}
 
-		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
-		Expect(err).NotTo(HaveOccurred())
+		// Reconcile until terminal state (finalizer + pending + checkpoint).
+		for range 3 {
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+		}
 
 		var updated checkpointv1alpha1.PodCheckpoint
 		Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
@@ -176,8 +209,10 @@ var _ = Describe("PodCheckpoint Controller", func() {
 			Checkpointer: fake,
 		}
 
-		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
-		Expect(err).NotTo(HaveOccurred())
+		for range 3 {
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+		}
 		Expect(fake.lastTimeout).To(Equal(int64(30)))
 	})
 
@@ -200,8 +235,10 @@ var _ = Describe("PodCheckpoint Controller", func() {
 			},
 		}
 
-		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
-		Expect(err).NotTo(HaveOccurred())
+		for range 3 {
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+		}
 
 		var updated checkpointv1alpha1.PodCheckpoint
 		Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
@@ -231,5 +268,63 @@ var _ = Describe("PodCheckpoint Controller", func() {
 		result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result).To(Equal(reconcile.Result{}))
+	})
+
+	It("should retry InProgress checkpoints (not treat as terminal)", func() {
+		podName := "pod-running-retry"
+		name := "ckpt-retry-inprogress"
+		nn := types.NamespacedName{Name: name, Namespace: "default"}
+
+		pod := createPod(ctx, podName, "test-node")
+		pod.Status.Phase = corev1.PodRunning
+		Expect(k8sClient.Status().Update(ctx, pod)).To(Succeed())
+
+		createPodCheckpoint(ctx, name, podName)
+
+		// Simulate a checkpoint that was left InProgress (controller crash).
+		var checkpoint checkpointv1alpha1.PodCheckpoint
+		Expect(k8sClient.Get(ctx, nn, &checkpoint)).To(Succeed())
+		checkpoint.Status.Phase = checkpointv1alpha1.PodCheckpointPhaseInProgress
+		checkpoint.Status.NodeName = "test-node"
+		Expect(k8sClient.Status().Update(ctx, &checkpoint)).To(Succeed())
+
+		expectedLocation := "/var/lib/kubelet/pod-checkpoints/checkpoint-retry.tar"
+		fake := &fakeCheckpointer{location: expectedLocation}
+		reconciler := &PodCheckpointReconciler{
+			Client:       k8sClient,
+			Scheme:       k8sClient.Scheme(),
+			Checkpointer: fake,
+		}
+
+		// Should NOT skip — should retry the checkpoint.
+		for range 2 {
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		var updated checkpointv1alpha1.PodCheckpoint
+		Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
+		Expect(updated.Status.Phase).To(Equal(checkpointv1alpha1.PodCheckpointPhaseReady))
+		Expect(updated.Status.CheckpointLocation).To(Equal(expectedLocation))
+	})
+
+	It("should add protection finalizer to the PodCheckpoint", func() {
+		name := "ckpt-finalizer"
+		nn := types.NamespacedName{Name: name, Namespace: "default"}
+
+		createPodCheckpoint(ctx, name, "some-pod-finalizer")
+
+		reconciler := &PodCheckpointReconciler{
+			Client:       k8sClient,
+			Scheme:       k8sClient.Scheme(),
+			Checkpointer: &fakeCheckpointer{},
+		}
+
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		Expect(err).NotTo(HaveOccurred())
+
+		var updated checkpointv1alpha1.PodCheckpoint
+		Expect(k8sClient.Get(ctx, nn, &updated)).To(Succeed())
+		Expect(controllerutil.ContainsFinalizer(&updated, checkpointv1alpha1.PodCheckpointProtectionFinalizer)).To(BeTrue())
 	})
 })

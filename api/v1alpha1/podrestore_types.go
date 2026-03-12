@@ -33,6 +33,7 @@ type PodRestoreSpec struct {
 	// checkpointName references the PodCheckpoint to restore from.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="checkpointName is immutable"
 	CheckpointName string `json:"checkpointName"`
 }
 

@@ -33,11 +33,24 @@ const (
 	ConditionReady = "Ready"
 )
 
+// Finalizer constants.
+const (
+	// PodCheckpointProtectionFinalizer prevents deletion of a PodCheckpoint
+	// that is referenced by a PodRestore, and triggers cleanup of checkpoint
+	// data on the node when the PodCheckpoint is deleted.
+	PodCheckpointProtectionFinalizer = "checkpoint.k8s.io/podcheckpoint-protection"
+
+	// SourcePodProtectionFinalizer is added to the source Pod while a
+	// checkpoint operation is in progress, preventing accidental deletion.
+	SourcePodProtectionFinalizer = "checkpoint.k8s.io/source-pod-protection"
+)
+
 // PodCheckpointSpec defines the desired state of PodCheckpoint.
 type PodCheckpointSpec struct {
 	// sourcePodName is the name of the running Pod to checkpoint.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="sourcePodName is immutable"
 	SourcePodName string `json:"sourcePodName"`
 
 	// timeoutSeconds is the timeout for the checkpoint operation in seconds.
@@ -45,7 +58,29 @@ type PodCheckpointSpec struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	TimeoutSeconds int64 `json:"timeoutSeconds,omitempty"`
+
+	// deletionPolicy determines whether checkpoint data on the node should
+	// be deleted when this PodCheckpoint is removed. Defaults to Delete.
+	// +optional
+	// +kubebuilder:validation:Enum=Delete;Retain
+	// +kubebuilder:default=Delete
+	DeletionPolicy DeletionPolicy `json:"deletionPolicy,omitempty"`
 }
+
+// DeletionPolicy describes the policy for handling checkpoint data when
+// the PodCheckpoint object is deleted.
+// +kubebuilder:validation:Enum=Delete;Retain
+type DeletionPolicy string
+
+const (
+	// DeletionPolicyDelete means checkpoint data is deleted when the
+	// PodCheckpoint object is removed.
+	DeletionPolicyDelete DeletionPolicy = "Delete"
+
+	// DeletionPolicyRetain means checkpoint data is kept on the node
+	// even after the PodCheckpoint object is removed.
+	DeletionPolicyRetain DeletionPolicy = "Retain"
+)
 
 // CheckpointContainerInfo stores the name and image of a checkpointed container
 // so that the restore controller can create a Pod with matching container specs.

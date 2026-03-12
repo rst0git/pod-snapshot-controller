@@ -60,6 +60,9 @@ spec:
                   from.
                 minLength: 1
                 type: string
+                x-kubernetes-validations:
+                - message: checkpointName is immutable
+                  rule: self == oldSelf
             required:
             - checkpointName
             type: object

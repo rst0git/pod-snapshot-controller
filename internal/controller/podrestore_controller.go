@@ -54,6 +54,7 @@ type PodRestoreReconciler struct {
 // +kubebuilder:rbac:groups=checkpoint.k8s.io,resources=podrestores,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=checkpoint.k8s.io,resources=podrestores/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=checkpoint.k8s.io,resources=podrestores/finalizers,verbs=update
+// +kubebuilder:rbac:groups=checkpoint.k8s.io,resources=podcheckpoints,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=nodes/proxy,verbs=create
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;create;delete
 
@@ -70,11 +71,30 @@ func (r *PodRestoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
-	// Skip if already in progress or in a terminal state.
-	if restore.Status.Phase == checkpointv1alpha1.PodRestorePhaseRestoring ||
-		restore.Status.Phase == checkpointv1alpha1.PodRestorePhaseCompleted ||
+	// Skip terminal states only (Completed and Failed).
+	// Restoring is NOT terminal — if the controller crashed mid-operation,
+	// we must retry.
+	if restore.Status.Phase == checkpointv1alpha1.PodRestorePhaseCompleted ||
 		restore.Status.Phase == checkpointv1alpha1.PodRestorePhaseFailed {
 		return ctrl.Result{}, nil
+	}
+
+	// Set initial Pending phase and condition if not yet set.
+	if restore.Status.Phase == "" {
+		restore.Status.Phase = checkpointv1alpha1.PodRestorePhasePending
+		meta.SetStatusCondition(&restore.Status.Conditions, metav1.Condition{
+			Type:               checkpointv1alpha1.ConditionReady,
+			Status:             metav1.ConditionUnknown,
+			Reason:             "Pending",
+			Message:            "Restore request accepted, awaiting processing",
+			ObservedGeneration: restore.Generation,
+		})
+		if err := r.Status().Update(ctx, &restore); err != nil {
+			return ctrl.Result{}, err
+		}
+		if err := r.Get(ctx, req.NamespacedName, &restore); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	// Get the referenced PodCheckpoint.
@@ -107,6 +127,13 @@ func (r *PodRestoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	// Set phase to Restoring.
 	restore.Status.Phase = checkpointv1alpha1.PodRestorePhaseRestoring
+	meta.SetStatusCondition(&restore.Status.Conditions, metav1.Condition{
+		Type:               checkpointv1alpha1.ConditionReady,
+		Status:             metav1.ConditionFalse,
+		Reason:             "RestoreInProgress",
+		Message:            fmt.Sprintf("Restoring from checkpoint %q on node %q", checkpoint.Name, checkpoint.Status.NodeName),
+		ObservedGeneration: restore.Generation,
+	})
 	if err := r.Status().Update(ctx, &restore); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -129,6 +156,19 @@ func (r *PodRestoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		log.Error(err, "Failed to create Pod for restore")
 		return ctrl.Result{}, r.setFailed(ctx, &restore,
 			fmt.Sprintf("Failed to create Pod: %v", err))
+	}
+
+	// Wait for the placeholder Pod to have a sandbox set up by the kubelet.
+	// Instead of a fixed sleep, poll until the Pod is observed as Running
+	// or has container statuses (indicating kubelet has synced it), or
+	// requeue if not yet ready.
+	podReady, err := r.isPodSandboxReady(ctx, podName, restore.Namespace)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if !podReady {
+		log.Info("Waiting for kubelet to set up placeholder Pod sandbox", "pod", podName)
+		return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
 	}
 
 	// Call the kubelet restore API via the API server node proxy.
@@ -167,6 +207,28 @@ func (r *PodRestoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	})
 
 	return ctrl.Result{}, r.Status().Update(ctx, &restore)
+}
+
+// isPodSandboxReady checks whether the kubelet has synced the placeholder Pod
+// by looking for a PodIP or container statuses, which indicate the sandbox
+// has been created with networking.
+func (r *PodRestoreReconciler) isPodSandboxReady(ctx context.Context, podName, namespace string) (bool, error) {
+	var pod corev1.Pod
+	if err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: podName}, &pod); err != nil {
+		return false, err
+	}
+
+	// If the Pod has an IP assigned, the sandbox is up with networking.
+	if pod.Status.PodIP != "" {
+		return true, nil
+	}
+
+	// If any container status is reported, the kubelet has synced.
+	if len(pod.Status.ContainerStatuses) > 0 {
+		return true, nil
+	}
+
+	return false, nil
 }
 
 // restoreResponse represents the JSON response from the kubelet
@@ -233,11 +295,6 @@ func (r *PodRestoreReconciler) ensurePodForRestore(
 		return fmt.Errorf("failed to check existing pod: %w", err)
 	}
 
-	// Extract container names from the checkpoint filename.
-	// The filename format is: snapshot-{podName}_{namespace}-{timestamp}
-	// We don't have direct access to the node's filesystem, so we use a
-	// single placeholder container. The kubelet will determine the actual
-	// containers from the checkpoint manifest.
 	// Build container specs from the checkpoint's stored container info.
 	// Using the actual container names and images ensures the kubelet's
 	// sync loop recognizes the restored containers as matching the Pod spec.
@@ -291,10 +348,6 @@ func (r *PodRestoreReconciler) ensurePodForRestore(
 	log.Info("Created Pod for restore",
 		"pod", podName, "uid", createdPod.UID, "node", nodeName)
 
-	// Wait for the kubelet to set up the Pod's sandbox with networking.
-	// The kubelet's sync loop will detect the new Pod and create a
-	// sandbox. containerd's RestorePod will then reuse that sandbox.
-	time.Sleep(5 * time.Second)
 	return nil
 }
 
